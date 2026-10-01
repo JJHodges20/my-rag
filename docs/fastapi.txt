@@ -1,0 +1,7 @@
+FastAPI is a Python framework used to build web APIs. It supports route decorators such as GET, POST, PATCH, and DELETE for defining API endpoints.
+
+Pydantic models work with FastAPI to validate incoming request data. Schemas can define required fields, string length limits, and numeric constraints. Invalid request data normally produces a validation response before endpoint logic runs.
+
+FastAPI can also support authentication using JWT access tokens. Protected endpoints can require a valid token before allowing users to create, update, or delete resources.
+
+FastAPI automatically generates interactive API documentation using Swagger UI and ReDoc.

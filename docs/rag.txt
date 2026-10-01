@@ -1,0 +1,9 @@
+Retrieval-Augmented Generation, or RAG, combines information retrieval with a language model.
+
+Documents are first divided into chunks. Each chunk is converted into an embedding and stored in a vector database such as ChromaDB.
+
+When a user asks a question, the question is also embedded. The vector database compares the query embedding against stored document embeddings and returns the most relevant chunks.
+
+The retrieved chunks are inserted into a prompt along with system instructions and the user's question. The language model then generates an answer using the retrieved context.
+
+A grounded RAG prompt should instruct the model to use only the provided context and to admit when the context does not contain enough information. Source metadata can also be included so the model can cite where information came from.

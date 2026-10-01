@@ -1,0 +1,7 @@
+Streamlit is a Python framework for quickly building interactive web applications and dashboards.
+
+Streamlit provides widgets including text inputs, sliders, checkboxes, buttons, select boxes, and radio buttons. Changing a widget causes the Streamlit script to rerun.
+
+Session state allows values to persist between Streamlit reruns. It can store values such as authentication tokens, quiz scores, current questions, and chat history.
+
+Streamlit also supports metrics, columns, tabs, charts, dataframes, chat interfaces, sidebars, and loading indicators.

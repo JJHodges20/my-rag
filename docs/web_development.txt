@@ -1,0 +1,7 @@
+HTML provides the semantic structure of a web page. Elements such as header, nav, main, section, article, and footer describe the purpose of page content.
+
+CSS controls the visual appearance and layout of HTML elements. Flexbox can arrange items in rows or columns and can wrap items when screen space becomes limited.
+
+JavaScript makes web pages interactive. It can respond to events, manipulate the DOM, and use fetch to communicate with APIs.
+
+Frontend applications often communicate with backend APIs using HTTP requests and JSON data.

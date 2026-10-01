@@ -1,0 +1,7 @@
+Semantic search retrieves information based on meaning instead of only matching exact keywords.
+
+Embedding models convert text into numerical vectors. Text with similar meaning tends to have embedding vectors that are closer together.
+
+Cosine similarity can measure similarity between embedding vectors. Search systems can rank stored documents based on their similarity to a query embedding.
+
+Similarity thresholds affect retrieval quality. Lower thresholds can increase recall but may include irrelevant information, while higher thresholds are more selective but may miss useful results.

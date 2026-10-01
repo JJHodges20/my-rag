@@ -1,0 +1,7 @@
+SQLAlchemy allows Python applications to work with relational databases using Python classes and queries.
+
+A SQLAlchemy model represents a database table. Columns can store values such as strings, numbers, booleans, and timestamps.
+
+SQLite is useful for smaller projects because the database can be stored in a local file without requiring a separate database server.
+
+Database sessions are used to query, create, update, and delete records. Applications should close sessions when database work is finished.
