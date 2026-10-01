@@ -21,6 +21,8 @@ OLLAMA_URL = "http://localhost:11434/api/chat"
 
 OLLAMA_MODEL = "llama3.2"
 
+DISTANCE_THRESHOLD = 1.0
+
 
 # ============================================
 # EMBEDDING FUNCTION
@@ -84,13 +86,11 @@ def chunk_document(text):
     Split a document into paragraph-based chunks.
     """
 
-    chunks = [
+    return [
         paragraph.strip()
         for paragraph in text.split("\n\n")
         if paragraph.strip()
     ]
-
-    return chunks
 
 
 # ============================================
@@ -99,7 +99,7 @@ def chunk_document(text):
 
 def ingest_documents():
     """
-    Load documents, chunk them by paragraph,
+    Load documents, split them into paragraphs,
     and store them in persistent ChromaDB.
     """
 
@@ -117,15 +117,15 @@ def ingest_documents():
         )
 
 
-        # Remove old chunks for this source
-        # before inserting the current version.
-
+        # Remove older chunks from this file
+        # before adding the current version.
         try:
             collection.delete(
                 where={
                     "source": source
                 }
             )
+
         except Exception:
             pass
 
@@ -166,9 +166,15 @@ def ingest_documents():
 # RETRIEVAL
 # ============================================
 
-def retrieve(question, top_k=3):
+def retrieve(
+    question,
+    top_k=5,
+):
     """
-    Search ChromaDB and return the top matching chunks.
+    Retrieve candidate chunks from ChromaDB.
+
+    We request more than 3 initially so the
+    threshold can filter weak matches.
     """
 
     results = collection.query(
@@ -211,6 +217,61 @@ def retrieve(question, top_k=3):
 
 
 # ============================================
+# GUARDRAIL 1
+# DISTANCE THRESHOLD
+# ============================================
+
+def filter_chunks(
+    chunks,
+    threshold=DISTANCE_THRESHOLD,
+):
+    """
+    Keep only chunks with distance below
+    the configured threshold.
+    """
+
+    filtered = [
+        chunk
+        for chunk in chunks
+        if chunk["distance"] < threshold
+    ]
+
+    return filtered
+
+
+# ============================================
+# GUARDRAIL 2
+# CONFIDENCE LEVEL
+# ============================================
+
+def get_confidence(chunks):
+    """
+    Determine confidence using the best distance.
+
+    Smaller Chroma distance = stronger match.
+    """
+
+    if not chunks:
+        return "low"
+
+
+    best_distance = min(
+        chunk["distance"]
+        for chunk in chunks
+    )
+
+
+    if best_distance < 0.5:
+        return "high"
+
+    elif best_distance < 1.0:
+        return "medium"
+
+    else:
+        return "low"
+
+
+# ============================================
 # BUILD RAG PROMPT
 # ============================================
 
@@ -219,7 +280,7 @@ def build_prompt(
     retrieved_chunks,
 ):
     """
-    Build a grounded RAG prompt using retrieved chunks.
+    Build a guarded RAG prompt.
     """
 
     context_sections = []
@@ -249,17 +310,19 @@ def build_prompt(
 
 
     system_prompt = """
-You are a course study assistant using Retrieval-Augmented Generation.
+You are a grounded course study assistant.
 
-Answer the user's question using ONLY the retrieved context provided.
+You must follow these guardrails:
 
-Rules:
-- Do not use outside knowledge.
-- If the retrieved context does not contain enough information to answer the question, clearly say so.
-- Do not invent facts.
-- Cite the source or sources used in your answer.
+- Answer using ONLY the retrieved context provided.
+- Never make up facts or add information from outside the context.
+- If the context does not contain enough information, say:
+  "I don't know based on the provided context."
+- If you are unsure, say that you are unsure.
+- Always cite the source or sources used.
 - Use citations such as [Source 1] or [Source 2].
-- Keep the answer clear and concise.
+- Do not invent citations.
+- Keep the response clear and concise.
 """.strip()
 
 
@@ -274,7 +337,13 @@ USER QUESTION
 {question}
 
 
-Answer the question using only the retrieved context and include source citations.
+Answer using only the retrieved context.
+
+Remember:
+- Do not make up missing information.
+- Say "I don't know based on the provided context."
+  if the answer is not supported.
+- Cite your sources.
 """.strip()
 
 
@@ -293,7 +362,7 @@ def generate_answer(
     retrieved_chunks,
 ):
     """
-    Send the RAG prompt to Ollama.
+    Send the grounded RAG prompt to Ollama.
     """
 
     system_prompt, user_prompt = (
@@ -366,25 +435,120 @@ def generate_answer(
 
 
 # ============================================
+# GUARDRAIL 4
+# STRUCTURED RESPONSE
+# ============================================
+
+def answer_question(question):
+    """
+    Run retrieval, filtering, confidence scoring,
+    generation, and structured response creation.
+    """
+
+    candidate_chunks = retrieve(
+        question,
+        top_k=5,
+    )
+
+
+    filtered_chunks = filter_chunks(
+        candidate_chunks,
+        threshold=DISTANCE_THRESHOLD,
+    )
+
+
+    confidence = get_confidence(
+        filtered_chunks
+    )
+
+
+    # ----------------------------------------
+    # NO RELEVANT INFORMATION
+    # ----------------------------------------
+
+    if not filtered_chunks:
+
+        return {
+            "answer": (
+                "No relevant information was found "
+                "in the knowledge base."
+            ),
+            "sources": [],
+            "confidence": "low",
+            "chunks_retrieved": 0,
+        }
+
+
+    # Keep only the best 3 chunks after filtering
+    filtered_chunks = filtered_chunks[:3]
+
+
+    answer = generate_answer(
+        question,
+        filtered_chunks,
+    )
+
+
+    sources = list(
+        dict.fromkeys(
+            chunk["source"]
+            for chunk in filtered_chunks
+        )
+    )
+
+
+    return {
+        "answer": answer,
+        "sources": sources,
+        "confidence": confidence,
+        "chunks_retrieved": len(
+            filtered_chunks
+        ),
+    }
+
+
+# ============================================
 # DISPLAY RETRIEVED CHUNKS
 # ============================================
 
-def display_retrieved_chunks(
-    retrieved_chunks,
-):
+def display_chunks(question):
+    """
+    Display candidate retrieval results so
+    the guardrail behavior can be inspected.
+    """
+
+    chunks = retrieve(
+        question,
+        top_k=5,
+    )
+
 
     print(
-        "\nRetrieved chunks:"
+        "\nCandidate chunks:"
     )
 
 
     for index, chunk in enumerate(
-        retrieved_chunks,
+        chunks,
         start=1,
     ):
 
+        passes = (
+            chunk["distance"]
+            < DISTANCE_THRESHOLD
+        )
+
+
+        status = (
+            "PASS"
+            if passes
+            else "FILTERED"
+        )
+
+
         print(
             f"\n{index}. "
+            f"[{status}] "
             f"{chunk['source']} "
             f"(chunk {chunk['chunk_index']})"
         )
@@ -400,13 +564,80 @@ def display_retrieved_chunks(
 
 
 # ============================================
+# TEST QUERIES
+# ============================================
+
+test_queries = {
+
+    "IN-SCOPE":
+        "How does Streamlit preserve values between reruns?",
+
+    "PARTIALLY IN-SCOPE":
+        "What database should I use for a large production FastAPI app?",
+
+    "OUT-OF-SCOPE":
+        "Who won the Super Bowl in 2025?",
+
+    "AMBIGUOUS":
+        "How do I make my application better?",
+}
+
+
+# ============================================
+# RUN TESTS
+# ============================================
+
+def run_tests():
+
+    print(
+        "\nRunning RAG guardrail tests..."
+    )
+
+
+    for query_type, question in (
+        test_queries.items()
+    ):
+
+        print(
+            "\n" + "=" * 80
+        )
+
+        print(
+            f"{query_type}"
+        )
+
+        print(
+            f'Question: "{question}"'
+        )
+
+
+        display_chunks(
+            question
+        )
+
+
+        response = answer_question(
+            question
+        )
+
+
+        print(
+            "\nStructured response:"
+        )
+
+        print(
+            response
+        )
+
+
+# ============================================
 # MAIN
 # ============================================
 
 def main():
 
     print(
-        "Building RAG knowledge base..."
+        "Building guarded RAG knowledge base..."
     )
 
 
@@ -414,7 +645,20 @@ def main():
 
 
     print(
-        "\nRAG system ready."
+        f"\nDistance threshold: "
+        f"{DISTANCE_THRESHOLD}"
+    )
+
+
+    run_tests()
+
+
+    print(
+        "\n" + "=" * 80
+    )
+
+    print(
+        "\nInteractive mode ready."
     )
 
     print(
@@ -447,50 +691,22 @@ def main():
             continue
 
 
-        # ------------------------------------
-        # RETRIEVE
-        # ------------------------------------
-
-        retrieved_chunks = retrieve(
-            question,
-            top_k=3,
+        display_chunks(
+            question
         )
 
 
-        # ------------------------------------
-        # DISPLAY RETRIEVAL
-        # ------------------------------------
-
-        display_retrieved_chunks(
-            retrieved_chunks
+        response = answer_question(
+            question
         )
 
-
-        # ------------------------------------
-        # GENERATE
-        # ------------------------------------
 
         print(
-            "\nGenerating answer..."
-        )
-
-
-        answer = generate_answer(
-            question,
-            retrieved_chunks,
-        )
-
-
-        # ------------------------------------
-        # DISPLAY ANSWER
-        # ------------------------------------
-
-        print(
-            "\nAnswer:"
+            "\nStructured response:"
         )
 
         print(
-            answer
+            response
         )
 
 
